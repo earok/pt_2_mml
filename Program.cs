@@ -336,11 +336,12 @@ namespace PT_2_MML
 								continue;
 							}
 
+							sb.Append(channel.Map + " ");
+
 							//If we're in tempo mode as opposed to tick mode
 							if (patternId == 0 && tempoMode)
 							{
-								sb.Append("t" + tempo + " ");
-								sb.Append(channel.Map + " l16 ");
+								sb.Append("l16 t" + tempo + " ");
 							}
 
 							//Set the loop position
@@ -348,8 +349,6 @@ namespace PT_2_MML
 							{
 								sb.Append("L ");
 							}
-
-							sb.Append("V0 ");
 
 							var row = 0;
 							while (row < 64)
