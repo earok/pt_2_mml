@@ -1,0 +1,8 @@
+{
+  "profiles": {
+    "PT_2_MML": {
+      "commandName": "Project",
+      "commandLineArgs": "song.mod"
+    }
+  }
+}
