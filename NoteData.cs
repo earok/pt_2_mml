@@ -37,6 +37,21 @@ namespace PT_2_MML
 		public int VolumeSlide = 0;
 
 		/// <summary>
+		/// Instant volume change up or down (EAx)
+		/// </summary>
+		public int VolumeAdjust;
+
+		/// <summary>
+		/// How many loops are owed? Will keep repeating until this is zero
+		/// </summary>
+		public int LoopsOwed;
+
+		/// <summary>
+		/// How many bytes into the sample do we play?
+		/// </summary>
+		public int Offset;
+
+		/// <summary>
 		/// The type of effect
 		/// </summary>
 		public int EffectType => (Effect >> 8);

@@ -36,11 +36,17 @@ namespace PT_2_MML
 		/// </summary>
 		public int Id;
 
-		public UsedSample(int id, int octave, string note)
+		/// <summary>
+		/// How many bytes offset from the start?
+		/// </summary>
+		public int Offset;
+
+		public UsedSample(int id, int octave, string note, int offset)
 		{
 			Id = id;
 			Octave = octave;
 			Note = note;
+			Offset = offset;
 		}
 
 		/// <summary>
@@ -48,9 +54,9 @@ namespace PT_2_MML
 		/// </summary>
 		/// <param name="sample">The source sample data</param>
 		/// <returns></returns>
-		public string CorrectName(SampleData sample)
+		public string CorrectName(SampleData sample, bool repeatMode)
 		{
-			return sample.Name + "." + Note + Octave + ".wav";
+			return sample.Name + "." + Note + Octave + (repeatMode ? "R" : "") + (Offset > 0 ? Offset : "") + ".wav";
 		}
 	}
 }

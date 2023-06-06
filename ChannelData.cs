@@ -32,26 +32,9 @@ namespace PT_2_MML
 		public int LastVolume;
 
 		/// <summary>
-		/// What was the last sample played on this channel?
+		/// Are we repeating an instrument?
 		/// </summary>
-		public SampleData? LastSampleData;
-
-		/// <summary>
-		/// How many rows does the last sample need to play for?
-		/// </summary>
-		public int LastSampleRows;
-
-		/// <summary>
-		/// Updates the minimum required rows of the last sample data
-		/// </summary>
-		public void SetSampleMinimumRows()
-		{
-			if (LastSampleData == null)
-			{
-				return;
-			}
-
-			LastSampleData.MinimumRows = Math.Max(LastSampleRows, LastSampleData.MinimumRows);
-		}
+		public int RepeatInstrument = -1;
+		internal int RepeatTicks;
 	}
 }

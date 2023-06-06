@@ -72,11 +72,6 @@ namespace PT_2_MML
 		public int Start;
 
 		/// <summary>
-		/// How many rows do we need to play this sample for in order to avoid it being clipped
-		/// </summary>
-		public int MinimumRows;
-
-		/// <summary>
 		/// Is this a valid sample?
 		/// </summary>
 		/// <returns>Sample is valid or not</returns>

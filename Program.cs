@@ -1,4 +1,5 @@
 ﻿using NAudio.Wave;
+using System.Reflection.Metadata;
 using System.Text;
 
 namespace PT_2_MML
@@ -58,12 +59,15 @@ namespace PT_2_MML
 		/// <summary>
 		/// The maximum amount we can multiply
 		/// </summary>
-		const int MaxHzMultiplier = 4;
+		const int MaxHzMultiplier = 6; //8760
 
 		/// <summary>
-		/// The maximum WAV size that MDSDRV supported. We'll use a lower output frequency if a sample won't fit under this size limit
+		/// The maximum WAV size that MDSDRV supported
 		/// </summary>
-		const int MaxWavSize = 32 * 1024;
+		const int MaxWavSize = 32 * 1024; //32768
+
+		//A repeating sound should play for this many rows at least before repeating (50 == one second)
+		const int MaxRepeatTicks = 50;
 
 		/// <summary>
 		/// A list of all of the samples that are actually needed, along with the required 
@@ -151,9 +155,6 @@ namespace PT_2_MML
 
 					var patternCount = lastPosition + 1;
 					var patterns = new PatternData[64];
-					var tempoMode = false;
-					var tempo = 125;
-					var ticksPerRow = 6;
 
 					var unsupportedEffects = new HashSet<string>();
 
@@ -161,13 +162,29 @@ namespace PT_2_MML
 					Verify("M.K.");
 
 					//Rip every pattern
-					for (var i = 0; i < patternCount; i++)
+					for (var patternId = 0; patternId < patternCount; patternId++)
 					{
-						var pattern = patterns[i] = new PatternData();
+						var pattern = patterns[patternId] = new PatternData();
 
 						//For every row...
 						for (var rowId = 0; rowId < 64; rowId++)
 						{
+							var row = patterns[patternId].RowData[rowId] = new RowData();
+
+							//Set the defaults
+							if (rowId == 0)
+							{
+								if (patternId == 0)
+								{
+									pattern.LastTicksPerRow = row.TicksPerRow = 6;
+								}
+								else
+								{
+									pattern.LastTicksPerRow = row.TicksPerRow = patterns[patternId - 1].LastTicksPerRow;
+								}
+							}
+
+
 							//For every channel...
 							for (var channelId = 0; channelId < 4; channelId++)
 							{
@@ -176,7 +193,7 @@ namespace PT_2_MML
 								var b3 = ReadByte();
 								var b4 = ReadByte();
 
-								var noteData = pattern.NoteData[rowId, channelId] = new NoteData()
+								var noteData = row.NoteData[channelId] = new NoteData()
 								{
 									Effect = ((b3 & 0x0F) << 8) | b4,
 									Period = ((b1 & 0x0F) << 8) | b2,
@@ -187,6 +204,11 @@ namespace PT_2_MML
 								switch (noteData.EffectType)
 								{
 									case 0: //nothing!?
+										effectSupported = true;
+										break;
+
+									case 0x9: //Bytes offset from start
+										noteData.Offset = 0x100 * noteData.EffectValue;
 										effectSupported = true;
 										break;
 
@@ -212,6 +234,34 @@ namespace PT_2_MML
 										noteData.Volume = noteData.EffectValue;
 										break;
 
+									case 0xe: //Various
+										switch (noteData.EffectValue >> 4)
+										{
+											case 0x6: //Loop point
+												var loops = noteData.EffectValue & 0xf;
+												if (loops == 0)
+												{
+													row.IsLoopRow = true;
+												}
+												else
+												{
+													row.LoopRepeats = loops;
+												}
+												effectSupported = true;
+												break;
+
+											case 0xa: //Effect slide up
+												noteData.VolumeAdjust = noteData.EffectValue & 0xf;
+												effectSupported = true;
+												break;
+
+											case 0xb: //Effect slide down
+												noteData.VolumeAdjust = -(noteData.EffectValue & 0xf);
+												effectSupported = true;
+												break;
+										}
+										break;
+
 									case 0xf: //Speed/tempo
 
 										effectSupported = true;
@@ -222,14 +272,11 @@ namespace PT_2_MML
 										}
 										else if (noteData.EffectValue < 0x1f)
 										{
-											tempoMode = false;
-											tempo = (50 * 60) / (noteData.EffectValue * 4);
-											ticksPerRow = noteData.EffectValue;
+											pattern.LastTicksPerRow = row.TicksPerRow = noteData.EffectValue;
 										}
 										else
 										{
-											tempoMode = true;
-											tempo = noteData.EffectValue;
+											pattern.LastTempo = row.Tempo = noteData.EffectValue;
 										}
 										break;
 
@@ -240,6 +287,26 @@ namespace PT_2_MML
 									unsupportedEffects.Add(noteData.EffectType.ToString("X") + noteData.EffectValue.ToString("X2"));
 								}
 
+							}
+						}
+					}
+
+					//Second pass - make sure the loops owed are set on every channel
+					foreach (var pattern in patterns)
+					{
+						if (pattern == null)
+						{
+							continue;
+						}
+
+						foreach (var row in pattern.RowData)
+						{
+							if (row.LoopRepeats > 0)
+							{
+								foreach (var note in row.NoteData)
+								{
+									note.LoopsOwed = row.LoopRepeats;
+								}
 							}
 						}
 					}
@@ -297,10 +364,10 @@ namespace PT_2_MML
 						for (var j = 0; j < 64; j++)
 						{
 							sb.AppendLine(string.Format("; {0} {1} {2} {3}",
-								patterns[i].NoteData[j, 0].ToString(),
-								patterns[i].NoteData[j, 1].ToString(),
-								patterns[i].NoteData[j, 2].ToString(),
-								patterns[i].NoteData[j, 3].ToString()
+								patterns[i].RowData[j].NoteData[0].ToString(),
+								patterns[i].RowData[j].NoteData[1].ToString(),
+								patterns[i].RowData[j].NoteData[2].ToString(),
+								patterns[i].RowData[j].NoteData[3].ToString()
 								));
 						}
 						sb.AppendLine(string.Empty);
@@ -331,6 +398,9 @@ namespace PT_2_MML
 
 						foreach (var channel in ChannelData)
 						{
+							var tempoMode = false;
+							var ticksPerRow = pattern.RowData[0].TicksPerRow;
+
 							if (string.IsNullOrWhiteSpace(channel.Map))
 							{
 								continue;
@@ -338,28 +408,52 @@ namespace PT_2_MML
 
 							sb.Append(channel.Map + " ");
 
-							//If we're in tempo mode as opposed to tick mode
-							if (patternId == 0 && tempoMode)
-							{
-								sb.Append("l16 t" + tempo + " ");
-							}
-
 							//Set the loop position
 							if (position == loopPosition)
 							{
 								sb.Append("L ");
 							}
 
-							var row = 0;
-							while (row < 64)
+							var rowId = 0;
+							var loopId = 0;
+							while (rowId < 64)
 							{
-								var note = pattern.NoteData[row, channel.Id];
+								var row = pattern.RowData[rowId];
 
-								//Volume?
+								//Changed speed?
+								if (row.TicksPerRow != 0)
+								{
+									ticksPerRow = row.TicksPerRow;
+									tempoMode = false;
+								}
+
+								//If we're in tempo mode as opposed to tick mode
+								if (row.Tempo != 0)
+								{
+									sb.Append("l16 t" + row.Tempo + " ");
+									ticksPerRow = (int)Math.Ceiling(((50 * 60) / 4) / (decimal)row.Tempo);
+									tempoMode = true;
+								}
+
+								//Is this a loop point?
+								if (row.IsLoopRow)
+								{
+									loopId = rowId;
+								}
+
+								var note = row.NoteData[channel.Id];
+
+								//Set to absolute volume
 								if (note.Volume > -1)
 								{
 									channel.LastVolume = note.Volume;
 									sb.Append("V" + FixVolume(note.Volume) + " ");
+								}
+								//Set to relative volume
+								else if (note.VolumeAdjust != 0)
+								{
+									channel.LastVolume = Math.Clamp(channel.LastVolume + note.VolumeAdjust, 0, 64);
+									sb.Append("V" + FixVolume(channel.LastVolume) + " ");
 								}
 								else if (note.Sample > 0)
 								{
@@ -378,26 +472,43 @@ namespace PT_2_MML
 
 								if (note.Sample > 0 && note.Period > 0)
 								{
-									var instrument = GetUsedSample(note.Period, note.Sample);
+									var instrument = GetUsedSample(note.Period, note.Sample, note.Offset);
 
-									sb.Append("@" + instrument);
+									sb.Append("@" + instrument * 2);
 									if (tempoMode)
 									{
-										sb.Append(note.OutputNote);
+										sb.Append(note.OutputNote + " ");
 									}
 									else
 									{
 										sb.Append(note.OutputNote + ":" + ticksPerRow + " ");
 									}
 
-									row += 1;
-
-									if (channel.LastSampleData != null)
+									//Are we repeating an instrument?
+									if (samples[note.Sample].RepeatLength > 1)
 									{
-										channel.SetSampleMinimumRows();
+										channel.RepeatInstrument = instrument * 2 + 1;
+										channel.RepeatTicks = MaxRepeatTicks;
 									}
-									channel.LastSampleData = samples[note.Sample];
-									channel.LastSampleRows = 0;
+									else
+									{
+										//Don't repeat
+										channel.RepeatInstrument = -1;
+									}
+								}
+								else if (channel.RepeatInstrument >= 0 && channel.RepeatTicks <= 0)
+								{
+									//We're repeating this instrument
+									channel.RepeatTicks = MaxRepeatTicks;
+									sb.Append("@" + channel.RepeatInstrument);
+									if (tempoMode)
+									{
+										sb.Append("c ");
+									}
+									else
+									{
+										sb.Append("c:" + ticksPerRow + " ");
+									}
 								}
 								else
 								{
@@ -409,12 +520,21 @@ namespace PT_2_MML
 									{
 										sb.Append("^:" + ticksPerRow + " ");
 									}
-									row += 1;
 								}
 
-								if (channel.LastSampleData != null)
+
+								channel.RepeatTicks -= ticksPerRow;
+
+
+								//End of a loop
+								if (note.LoopsOwed > 0)
 								{
-									channel.LastSampleRows++;
+									note.LoopsOwed -= 1;
+									rowId = loopId;
+								}
+								else
+								{
+									rowId++;
 								}
 							}
 
@@ -439,11 +559,6 @@ namespace PT_2_MML
 						}
 					}
 
-					foreach (var channel in ChannelData)
-					{
-						channel.SetSampleMinimumRows();
-					}
-
 					sb.AppendLine(";==== Sample Section ====");
 
 					//Get the sample offset
@@ -463,51 +578,21 @@ namespace PT_2_MML
 
 					foreach (var usedSample in UsedSamples)
 					{
+
 						var sample = samples[usedSample.Sample];
-						sb.AppendLine(string.Format("@{0} pcm \"{1}\" ;Length={2} FT={3} VOL={4} RP={5} RL={6} NOTE={7} ORIGINAL={8}", usedSample.Id, usedSample.CorrectName(sample), sample.Length, sample.FineTune, sample.Volume, sample.RepeatPoint, sample.RepeatLength, usedSample.Note, sample.Id));
-
 						var lookup = Array.IndexOf(PeriodTable, usedSample.Period);
-
 						var frequency = FineTuneLookup[sample.FineTune][lookup];
 
-						//Make the SOURCE wav
-						var waveFormat = new WaveFormat(frequency, 8, 1);
+						//Write our base sample
+						WriteSamples(usedSample, sample, frequency, false);
+						sb.AppendLine(string.Format("@{0} pcm \"{1}\" ;Length={2} FT={3} VOL={4} RP={5} RL={6} NOTE={7} ORIGINAL={8} OFFSET={9}", usedSample.Id * 2, usedSample.CorrectName(sample, false), sample.Length, sample.FineTune, sample.Volume, sample.RepeatPoint, sample.RepeatLength, usedSample.Note, sample.Id, usedSample.Offset));
 
-						//If repeating, make sure that the rip is at least as long as the sample is needed.
-						int minSamples;
+						//Write our repeat sample
 						if (sample.RepeatLength > 1)
 						{
-							minSamples = (frequency * sample.MinimumRows * ticksPerRow) / 50;
+							WriteSamples(usedSample, sample, frequency, true);
+							sb.AppendLine(string.Format("@{0} pcm \"{1}\" ;Length={2} FT={3} VOL={4} RP={5} RL={6} NOTE={7} ORIGINAL={8} (REPEAT) OFFSET={9}", usedSample.Id * 2 + 1, usedSample.CorrectName(sample, true), sample.Length, sample.FineTune, sample.Volume, sample.RepeatPoint, sample.RepeatLength, usedSample.Note, sample.Id, usedSample.Offset));
 						}
-						else
-						{
-							minSamples = sample.Length * 2;
-						}
-
-						//Is there a way to do this without writing a file?
-						using (var writer = new WaveFileWriter("temp.wav", waveFormat))
-						{
-							writer.Write(bytes, sample.Start, sample.Length * 2);
-
-							while (writer.Length < minSamples)
-							{
-								//Pad out the repeat length
-								writer.Write(bytes, sample.Start + sample.RepeatPoint * 2, sample.RepeatLength * 2);
-							}
-						}
-
-						using (var reader = new WaveFileReader("temp.wav"))
-						{
-							var targetMultiplier = Math.Min((MaxWavSize / reader.SampleCount) + 1, MaxHzMultiplier);
-
-
-							var outFormat = new WaveFormat(OutHz * MaxHzMultiplier, 8, reader.WaveFormat.Channels);
-							using (var resampler = new MediaFoundationResampler(reader, outFormat))
-							{
-								WaveFileWriter.CreateWaveFile("output/" + usedSample.CorrectName(sample), resampler);
-							}
-						}
-
 
 					}
 
@@ -527,23 +612,8 @@ namespace PT_2_MML
 							sb.Append(string.Format(" r:1 V{0}", FixVolume(volume)));
 						}
 
-						//				for (var i = 0; i < ticksPerRow; i++)
-						//				{
-
-						//				}
-
 						sb.AppendLine(string.Empty);
 					}
-
-					/*
-					sb.AppendLine(";==== A0Y Effects ====");
-					sb.AppendLine("*100 ;A00 Do nothing!");
-					for (var i = 1; i < 16; i++)
-					{
-						var speed = i;
-						sb.AppendLine(string.Format("*{0} [r:1 V+{1}]{3}; {2}", i + 100, speed, "A0" + i.ToString("X"), ticksPerRow));
-					}
-					*/
 
 					sb.AppendLine(string.Empty);
 					sb.AppendLine(";==== Unsupported Effects ====");
@@ -574,6 +644,65 @@ namespace PT_2_MML
 			Console.ReadKey();
 		}
 
+		private static void WriteSamples(UsedSample usedSample, SampleData sample, int frequency, bool repeatMode)
+		{
+			//Make the SOURCE wav
+			var waveFormat = new WaveFormat(frequency, 8, 1);
+
+			var start = sample.Start + usedSample.Offset;
+			var length = sample.Length * 2 - usedSample.Offset;
+
+
+			//If repeating, make sure that the rip is at least as long as the sample is needed.
+			int minSamples;
+			if (sample.RepeatLength > 1)
+			{
+				minSamples = (int)Math.Ceiling(frequency * MaxRepeatTicks / 50.0);
+			}
+			else
+			{
+				minSamples = length;
+			}
+
+			//Is there a way to do this without writing a file?
+			var totalLength = 0;
+			using (var writer = new WaveFileWriter("temp.wav", waveFormat))
+			{
+				//Only need to write from the start if we're not writing the repeat samples
+				if (repeatMode == false)
+				{
+					writer.Write(bytes, start, length);
+				}
+
+				while (writer.Length < minSamples)
+				{
+					//Pad out the repeat length
+					writer.Write(bytes, sample.Start + sample.RepeatPoint * 2, sample.RepeatLength * 2);
+				}
+
+				totalLength = (int)writer.Length;
+			}
+
+			var timeInSeconds = totalLength / (double)frequency;
+
+			using (var reader = new WaveFileReader("temp.wav"))
+			{
+				var multiplier = MaxHzMultiplier;
+
+				//Get the highest quality conversion that doesn't exceed 32kb, go all of the way down to the minimum frequency if a sample is just too big
+				while (multiplier > 2 && (OutHz * multiplier * timeInSeconds) > MaxWavSize)
+				{
+					multiplier--;
+				}
+
+				var outFormat = new WaveFormat(OutHz * multiplier, 8, reader.WaveFormat.Channels);
+				using (var resampler = new MediaFoundationResampler(reader, outFormat))
+				{
+					WaveFileWriter.CreateWaveFile("output/" + usedSample.CorrectName(sample, repeatMode), resampler);
+				}
+			}
+		}
+
 		private static int GetVolumeMacro(int baseVolume, int volumeSlide)
 		{
 			var index = Macros.FindIndex(p => p.VolumeSlide == volumeSlide && p.BaseVolume == baseVolume);
@@ -599,7 +728,7 @@ namespace PT_2_MML
 			return (int)Math.Round(sourceVolume / -.75);
 		}
 
-		private static int GetUsedSample(int period, int sample)
+		private static int GetUsedSample(int period, int sample, int offset)
 		{
 			var note = "NONE";
 			var octave = 1;
@@ -610,13 +739,13 @@ namespace PT_2_MML
 				octave += (Array.IndexOf(PeriodTable, period)) / FileNameTable.Length;
 			}
 
-			var index = UsedSamples.FindIndex(p => p.Period == period && p.Sample == sample);
+			var index = UsedSamples.FindIndex(p => p.Period == period && p.Sample == sample && p.Offset == offset);
 			if (index > -1)
 			{
 				return index + 1;
 			}
 
-			UsedSamples.Add(new UsedSample(UsedSamples.Count + 1, octave, note) { Period = period, Sample = sample });
+			UsedSamples.Add(new UsedSample(UsedSamples.Count + 1, octave, note, offset) { Period = period, Sample = sample });
 			return UsedSamples.Count;
 		}
 
