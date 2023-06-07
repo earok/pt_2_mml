@@ -132,7 +132,7 @@ namespace PT_2_MML
 						var sample = new SampleData
 						{
 							Id = i + 1,
-							Name = ReadString(22),
+							Name = (i+1) + "_" + ReadString(22),
 							Length = ReadWord(),
 							FineTune = ReadByte(),
 							Volume = ReadByte(),
@@ -328,7 +328,7 @@ namespace PT_2_MML
 
 					//Find the loop point
 					var position = 0;
-					var loopPosition = -1;
+					var loopPosition = 0;
 					var loopedPositions = new HashSet<int>();
 
 					while (true)
@@ -352,7 +352,13 @@ namespace PT_2_MML
 								break;
 							}
 							position = pattern.NextPosition;
+						}
 
+						//We've come to the natural end of the song
+						if (position >= songLength)
+						{
+							lastPosition = position;
+							break;
 						}
 					}
 
@@ -591,6 +597,12 @@ namespace PT_2_MML
 						else
 						{
 							position = pattern.NextPosition;
+						}
+
+						//We've come to the natural end of the song
+						if (position >= songLength)
+						{
+							break;
 						}
 					}
 
