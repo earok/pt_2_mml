@@ -1,4 +1,5 @@
-﻿using NAudio.Wave;
+﻿using NAudio.CoreAudioApi;
+using NAudio.Wave;
 using System.Reflection.Metadata;
 using System.Text;
 
@@ -44,7 +45,7 @@ namespace PT_2_MML
 		/// <summary>
 		/// Contains information on each of the four protracker channels
 		/// </summary>
-		internal static ChannelData[] ChannelData = new ChannelData[] { new ChannelData(0), new ChannelData(1), new ChannelData(2), new ChannelData(3) };
+		internal static List<ChannelData> ChannelData = new List<ChannelData>();
 
 		/// <summary>
 		/// A list of how all fine tune settings for every sample maps to the actual playback frequency
@@ -78,6 +79,11 @@ namespace PT_2_MML
 		/// A list of all Macros we need to dynamically generate to support ProTracker effects
 		/// </summary>
 		internal static List<Macro> Macros = new();
+
+		/// <summary>
+		/// Number of channels in this mod
+		/// </summary>
+		internal static int Channels;
 
 		static void Main(string[] args)
 		{
@@ -158,8 +164,12 @@ namespace PT_2_MML
 
 					var unsupportedEffects = new HashSet<string>();
 
-					//Check that this is the M.K. style of protracker file
-					Verify("M.K.");
+					Verify();
+
+					for (var i = 0; i < Channels; i++)
+					{
+						ChannelData.Add(new ChannelData(i));
+					}
 
 					//Rip every pattern
 					for (var patternId = 0; patternId < patternCount; patternId++)
@@ -169,7 +179,7 @@ namespace PT_2_MML
 						//For every row...
 						for (var rowId = 0; rowId < 64; rowId++)
 						{
-							var row = patterns[patternId].RowData[rowId] = new RowData();
+							var row = patterns[patternId].RowData[rowId] = new RowData(Channels);
 
 							//Set the defaults
 							if (rowId == 0)
@@ -186,7 +196,7 @@ namespace PT_2_MML
 
 
 							//For every channel...
-							for (var channelId = 0; channelId < 4; channelId++)
+							for (var channelId = 0; channelId < Channels; channelId++)
 							{
 								var b1 = ReadByte();
 								var b2 = ReadByte();
@@ -257,6 +267,11 @@ namespace PT_2_MML
 
 											case 0xb: //Effect slide down
 												noteData.VolumeAdjust = -(noteData.EffectValue & 0xf);
+												effectSupported = true;
+												break;
+
+											case 0x9: //Loop repeat
+												noteData.RepeatEveryTick = noteData.EffectValue & 0xf;
 												effectSupported = true;
 												break;
 										}
@@ -363,12 +378,13 @@ namespace PT_2_MML
 						sb.AppendLine(string.Format("; Pattern {0}", i));
 						for (var j = 0; j < 64; j++)
 						{
-							sb.AppendLine(string.Format("; {0} {1} {2} {3}",
-								patterns[i].RowData[j].NoteData[0].ToString(),
-								patterns[i].RowData[j].NoteData[1].ToString(),
-								patterns[i].RowData[j].NoteData[2].ToString(),
-								patterns[i].RowData[j].NoteData[3].ToString()
-								));
+							sb.Append("; ");
+							foreach (var note in patterns[i].RowData[j].NoteData)
+							{
+								sb.Append(note.ToString() + " ");
+							}
+							sb.AppendLine(string.Empty);
+
 						}
 						sb.AppendLine(string.Empty);
 					}
@@ -377,14 +393,15 @@ namespace PT_2_MML
 					position = 0;
 					loopedPositions.Clear();
 
+
 					var mdChannels = new string[] { "F", "K", "L" };
-					Console.WriteLine("Map Mega Drive / Genesis Channels to Protracker channel # (1-4, leave empty to ignore)");
+					Console.WriteLine("Map Mega Drive / Genesis Channels to Protracker channel # (1-" + Channels + ", leave empty to ignore)");
 					foreach (var mdChannel in mdChannels)
 					{
 						Console.Write("Channel " + mdChannel + ": ");
 						if (int.TryParse(Console.ReadLine() ?? "", out int ptChannel))
 						{
-							ChannelData[Math.Clamp(ptChannel - 1, 0, 3)].Map = mdChannel;
+							ChannelData[Math.Clamp(ptChannel - 1, 0, Channels - 1)].Map = mdChannel;
 						}
 					}
 
@@ -420,6 +437,8 @@ namespace PT_2_MML
 							{
 								var row = pattern.RowData[rowId];
 
+
+
 								//Changed speed?
 								if (row.TicksPerRow != 0)
 								{
@@ -442,6 +461,14 @@ namespace PT_2_MML
 								}
 
 								var note = row.NoteData[channel.Id];
+
+								//Cancel the current macro
+								if (channel.MacroPlaying && note.VolumeSlide == 0 && note.RepeatEveryTick == 0)
+								{
+									sb.Append("P0 ");
+									channel.MacroPlaying = false;
+								}
+
 
 								//Set to absolute volume
 								if (note.Volume > -1)
@@ -468,10 +495,19 @@ namespace PT_2_MML
 									var macroId = GetVolumeMacro(channel.LastVolume, note.VolumeSlide);
 									sb.Append("P" + macroId + " ");
 									channel.LastVolume = Math.Clamp(channel.LastVolume + note.VolumeSlide * ticksPerRow, 0, 64);
+									channel.MacroPlaying = true;
 								}
 
 								if (note.Sample > 0 && note.Period > 0)
 								{
+									//Are we repeating this in the same frame?
+									if (note.RepeatEveryTick != 0)
+									{
+										var macroId = GetRepeatMacro(note.RepeatEveryTick, ticksPerRow);
+										sb.Append("P" + macroId + " ");
+										channel.MacroPlaying = true;
+									}
+
 									var instrument = GetUsedSample(note.Period, note.Sample, note.Offset);
 
 									sb.Append("@" + instrument * 2);
@@ -521,7 +557,6 @@ namespace PT_2_MML
 										sb.Append("^:" + ticksPerRow + " ");
 									}
 								}
-
 
 								channel.RepeatTicks -= ticksPerRow;
 
@@ -600,16 +635,30 @@ namespace PT_2_MML
 					sb.AppendLine(";==== Autogen Macros ====");
 					foreach (var macro in Macros)
 					{
-						//Insert a rest of 1 frame before we change the volume
 						sb.Append(string.Format("*{0}", macro.ID));
 
-						//Fix the volume for every frame
-						var volume = macro.BaseVolume;
-
-						while ((volume > 0 && macro.VolumeSlide < 0) || (volume < 64 && macro.VolumeSlide > 0))
+						if (macro.VolumeSlide != 0)
 						{
-							volume = Math.Clamp(volume + macro.VolumeSlide, 0, 64);
-							sb.Append(string.Format(" r:1 V{0}", FixVolume(volume)));
+							//Fix the volume for every frame
+							var volume = macro.BaseVolume;
+
+							//Make sure there's at least one volume change operation
+							do
+							{
+								//Insert a rest of 1 frame before we change the volume
+								volume = Math.Clamp(volume + macro.VolumeSlide, 0, 64);
+								sb.Append(string.Format(" r:1 V{0}", FixVolume(volume)));
+							}
+							while ((volume > 0 && macro.VolumeSlide < 0) || (volume < 64 && macro.VolumeSlide > 0));
+						}
+						else if (macro.RepeatEveryTick != 0)
+						{
+							var tickOffset = macro.RepeatEveryTick;
+							while (tickOffset < macro.TicksPerRow)
+							{
+								sb.Append(string.Format(" c:{0}", macro.RepeatEveryTick));
+								tickOffset += macro.RepeatEveryTick;
+							}
 						}
 
 						sb.AppendLine(string.Empty);
@@ -643,6 +692,7 @@ namespace PT_2_MML
 			Console.WriteLine("Press any key to quit");
 			Console.ReadKey();
 		}
+
 
 		private static void WriteSamples(UsedSample usedSample, SampleData sample, int frequency, bool repeatMode)
 		{
@@ -701,6 +751,19 @@ namespace PT_2_MML
 					WaveFileWriter.CreateWaveFile("output/" + usedSample.CorrectName(sample, repeatMode), resampler);
 				}
 			}
+		}
+
+
+		private static int GetRepeatMacro(int repeatEveryTick, int ticksPerRow)
+		{
+			var index = Macros.FindIndex(p => p.RepeatEveryTick == repeatEveryTick && p.TicksPerRow == ticksPerRow);
+			if (index > -1)
+			{
+				return index + 100;
+			}
+			var id = Macros.Count + 100;
+			Macros.Add(new Macro() { RepeatEveryTick = repeatEveryTick, TicksPerRow = ticksPerRow, ID = id });
+			return id;
 		}
 
 		private static int GetVolumeMacro(int baseVolume, int volumeSlide)
@@ -778,15 +841,21 @@ namespace PT_2_MML
 			return result;
 		}
 
-		private static void Verify(string verifyString)
+		private static void Verify()
 		{
-			var verifyBytes = Encoding.ASCII.GetBytes(verifyString);
-			for (var i = 0; i < verifyBytes.Length; i++)
+			var header = Encoding.ASCII.GetString(bytes[offset..(offset + 4)]);
+			switch (header)
 			{
-				if (bytes[i + offset] != verifyBytes[i])
-				{
-					throw new Exception("Unable to verify file has M.K. header");
-				}
+				case "3CHN":
+					Channels = 3;
+					break;
+
+				case "M.K.":
+					Channels = 4;
+					break;
+
+				default:
+					throw new Exception("Unsupported header: " + header);
 			}
 			offset += 4;
 		}

@@ -52,6 +52,11 @@ namespace PT_2_MML
 		public int Offset;
 
 		/// <summary>
+		/// This note should be repeated every X tick
+		/// </summary>
+		public int RepeatEveryTick;
+
+		/// <summary>
 		/// The type of effect
 		/// </summary>
 		public int EffectType => (Effect >> 8);

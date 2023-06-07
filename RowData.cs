@@ -11,10 +11,15 @@ namespace PT_2_MML
 	/// </summary>
 	public class RowData
 	{
+		public RowData(int channels)
+		{
+			NoteData = new NoteData[channels];
+		}
+
 		/// <summary>
 		/// Four notes on each row
 		/// </summary>
-		public NoteData[] NoteData = new NoteData[4];
+		public NoteData[] NoteData;
 
 		/// <summary>
 		/// Is this a loop row?
@@ -30,6 +35,10 @@ namespace PT_2_MML
 		/// How many ticks per row, if this setting needs to change?
 		/// </summary>
 		public int TicksPerRow;
-		internal int Tempo;
+
+		/// <summary>
+		/// The tempo this note played back at
+		/// </summary>
+		public int Tempo;
 	}
 }

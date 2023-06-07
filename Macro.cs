@@ -25,5 +25,15 @@ namespace PT_2_MML
 		/// The ID of this macro
 		/// </summary>
 		public int ID;
+
+		/// <summary>
+		/// Repeat every X ticks
+		/// </summary>
+		public int RepeatEveryTick;
+
+		/// <summary>
+		/// What the ticks per row setting was when this macro was made
+		/// </summary>
+		public int TicksPerRow;
 	}
 }

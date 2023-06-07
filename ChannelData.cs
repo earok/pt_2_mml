@@ -35,6 +35,11 @@ namespace PT_2_MML
 		/// Are we repeating an instrument?
 		/// </summary>
 		public int RepeatInstrument = -1;
+		
+
 		internal int RepeatTicks;
+
+		//Was a macro playing on the last bar?
+		internal bool MacroPlaying;
 	}
 }
