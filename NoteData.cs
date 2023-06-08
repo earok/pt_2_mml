@@ -74,7 +74,7 @@ namespace PT_2_MML
 		/// <summary>
 		/// The octave
 		/// </summary>
-		public int Octave => (PeriodIndex / 12) + 1;
+		public int Octave => (PeriodIndex / 12) - 1;
 
 		/// <summary>
 		/// The string for the source node
@@ -104,7 +104,7 @@ namespace PT_2_MML
 
 			if (Effect > 0)
 			{
-				effectText = string.Format("{0:X}{1:D2}", EffectType, EffectValue);
+				effectText = string.Format("{0:X}{1:X2}", EffectType, EffectValue);
 			}
 
 			return string.Format("{0}{1}{2}", sampleText, noteText, effectText);

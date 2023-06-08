@@ -36,10 +36,9 @@ namespace PT_2_MML
 		/// </summary>
 		public int RepeatInstrument = -1;
 		
-
+		/// <summary>
+		/// Do we need to repeat this part faster than a single row?
+		/// </summary>
 		internal int RepeatTicks;
-
-		//Was a macro playing on the last bar?
-		internal bool MacroPlaying;
 	}
 }
