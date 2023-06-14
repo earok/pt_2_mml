@@ -287,8 +287,15 @@ namespace PT_2_MML
 		/// </summary>
 		const int MaxWavSize = 32 * 1024; //32768
 
-		//A repeating sound should play for this many rows at least before repeating (50 == one second)
-		const int MaxRepeatTicks = 50;
+		/// <summary>
+		/// A repeating sound should play for this many seconds
+		/// </summary>
+		const float MaxRepeatSeconds = 1;
+
+		/// <summary>
+		/// 50 ticks = pal, 60 ticks = NTSC
+		/// </summary>
+		public static int TicksPerFrame = 50;
 
 		/// <summary>
 		/// A list of all of the samples that are actually needed, along with the required 
@@ -622,6 +629,13 @@ namespace PT_2_MML
 						}
 					}
 
+					Console.WriteLine("Do you want to adjust timings for NTSC? y/n");
+					var isNTSC = Console.ReadLine();
+					if (string.IsNullOrEmpty(isNTSC) == false && isNTSC.Trim().ToLower().StartsWith("y"))
+					{
+						TicksPerFrame = 60;
+					}
+
 					while (true)
 					{
 						loopedPositions.Add(position);
@@ -659,7 +673,7 @@ namespace PT_2_MML
 								//Changed speed?
 								if (row.TicksPerRow != 0)
 								{
-									ticksPerRow = row.TicksPerRow;
+									ticksPerRow = (row.TicksPerRow * TicksPerFrame) / 50;
 									tempoMode = false;
 								}
 
@@ -667,7 +681,7 @@ namespace PT_2_MML
 								if (row.Tempo != 0)
 								{
 									sb.Append("l16 t" + row.Tempo + " ");
-									ticksPerRow = (int)Math.Ceiling(((50 * 60) / 4) / (decimal)row.Tempo);
+									ticksPerRow = (int)Math.Ceiling(((TicksPerFrame * 60) / 4) / (decimal)row.Tempo);
 									tempoMode = true;
 								}
 
@@ -731,7 +745,7 @@ namespace PT_2_MML
 									if (samples[note.Sample].RepeatLength > 1)
 									{
 										channel.RepeatInstrument = instrument * 2 + 1;
-										channel.RepeatTicks = MaxRepeatTicks;
+										channel.RepeatTicks = (int)Math.Ceiling(MaxRepeatSeconds * TicksPerFrame);
 									}
 									else
 									{
@@ -742,7 +756,7 @@ namespace PT_2_MML
 								else if (channel.RepeatInstrument >= 0 && channel.RepeatTicks <= 0)
 								{
 									//We're repeating this instrument
-									channel.RepeatTicks = MaxRepeatTicks;
+									channel.RepeatTicks = (int)Math.Ceiling(MaxRepeatSeconds * TicksPerFrame);
 									sb.Append("@" + channel.RepeatInstrument);
 									if (tempoMode)
 									{
@@ -854,14 +868,14 @@ namespace PT_2_MML
 							//Fix the volume for every frame
 							var volume = macro.BaseVolume;
 
-							//Make sure there's at least one volume change operation
-							do
+							//Insert a rest of 1 before actually making the volume change
+							sb.Append(" r:1 ");
+							for (var i = 0; i < macro.TicksPerRow; i++)
 							{
-								//Insert a rest of 1 frame before we change the volume
 								volume = Math.Clamp(volume + macro.VolumeSlide, 0, 64);
 								sb.Append(string.Format(" r:1 V{0}", FixVolume(volume)));
 							}
-							while ((volume > 0 && macro.VolumeSlide < 0) || (volume < 64 && macro.VolumeSlide > 0));
+
 						}
 						else if (macro.RepeatEveryTick != 0)
 						{
@@ -919,7 +933,7 @@ namespace PT_2_MML
 			int minSamples;
 			if (sample.RepeatLength > 1)
 			{
-				minSamples = (int)Math.Ceiling(frequency * MaxRepeatTicks / 50.0);
+				minSamples = (int)Math.Ceiling(frequency * MaxRepeatSeconds / (double)TicksPerFrame);
 			}
 			else
 			{
