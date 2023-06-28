@@ -869,7 +869,6 @@ namespace PT_2_MML
 							var volume = macro.BaseVolume;
 
 							//Insert a rest of 1 before actually making the volume change
-							sb.Append(" r:1 ");
 							for (var i = 0; i < macro.TicksPerRow; i++)
 							{
 								volume = Math.Clamp(volume + macro.VolumeSlide, 0, 64);
