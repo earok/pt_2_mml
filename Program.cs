@@ -715,7 +715,7 @@ namespace PT_2_MML
 								//Macro
 								if (note.VolumeSlide != 0)
 								{
-									var macroId = GetVolumeMacro(channel.LastVolume, note.VolumeSlide);
+									var macroId = GetVolumeMacro(channel.LastVolume, note.VolumeSlide, ticksPerRow);
 									sb.Append("P" + macroId + " ");
 									channel.LastVolume = Math.Clamp(channel.LastVolume + note.VolumeSlide * ticksPerRow, 0, 64);
 								}
@@ -933,7 +933,7 @@ namespace PT_2_MML
 			int minSamples;
 			if (sample.RepeatLength > 1)
 			{
-				minSamples = (int)Math.Ceiling(frequency * MaxRepeatSeconds / (double)TicksPerFrame);
+				minSamples = (int)Math.Ceiling(frequency * MaxRepeatSeconds * 50 / (double)TicksPerFrame);
 			}
 			else
 			{
@@ -992,16 +992,16 @@ namespace PT_2_MML
 			return id;
 		}
 
-		private static int GetVolumeMacro(int baseVolume, int volumeSlide)
+		private static int GetVolumeMacro(int baseVolume, int volumeSlide, int ticksPerRow)
 		{
-			var index = Macros.FindIndex(p => p.VolumeSlide == volumeSlide && p.BaseVolume == baseVolume);
+			var index = Macros.FindIndex(p => p.VolumeSlide == volumeSlide && p.BaseVolume == baseVolume && p.TicksPerRow == ticksPerRow);
 			if (index > -1)
 			{
 				return index + 100;
 			}
 
 			var id = Macros.Count + 100;
-			Macros.Add(new Macro() { BaseVolume = baseVolume, VolumeSlide = volumeSlide, ID = id });
+			Macros.Add(new Macro() { BaseVolume = baseVolume, VolumeSlide = volumeSlide, ID = id, TicksPerRow = ticksPerRow });
 			return id;
 		}
 
